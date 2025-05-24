@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "react-native-sheets-app",
+  "private_key_id": "c2a813bd59618a5698105c07311c0fb59b544966",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC6g7G5nCpHIAs4\nU3IHrMr1VivaZdEgcBee5T9ppD+Ah4YpJzbfkSpshV37cqvHLf3V0dTfzn1vL7Jv\n9EZ72c1GTN7/Z08pzKxcEexxsfPd8MfcbIf/0uxL9fCZUcQM0i8JjXz1vx4VlGuL\nxQB1k3THB4Zoq39hMcrKl2yPD9ZXfx8G1ettBMiOy+5MvgJIXTvMZpOId+A78obb\nTvQSpV11wvGZcnX1oGGQovKS9HCuGEzkMjSnNfOF+qhb7eCHvhYMaEh8h423rOjw\nJxNKAGTpNwKwwxvAGbqyt5Y0IT95G9tj+hTvIOyd1DqYouoJZ2CqIxjR3qitmyQk\n7GhdR8D/AgMBAAECggEAOdEUGTjvJCArSjkXyohGW/nr2yYfxyHoOJHQ7/MB2lpo\nfL5StMf/sic/hHA+Dp7TpmIGzp/oYzySYEEFTmQsTWQL5nlEYW04aswFkxL6SSzY\nD5y3Jdbg+AUTobtmfiDzgs8Q0u79KOxa0Ddv1oKwuve6sxyifmMcfWOmO8zJgVJ3\ne/EGDaqO8OL6kCxYMZzuwxVw3/9qi9GeUe3UfGMqZEQ5/cdpHMKwfd0yaxnAGtmF\n6uFfITKCKJjiHSZe47136Aa8qAnISublQBy8+wBcrp7dDF+B1GolVkXUr26Gd+Y/\nkoa0/mTXAX3yttyiTyyLOy+U/0oEWLiVUCMfLWflAQKBgQDnpjXxVMkXheRFR0pp\nsaTYwyTnL+gSC+QCpAUEl1sIneXfux9Reav3+7SzgtTfPJor2tD+sbz79Y1j/S3v\nGgRefr+PO9iQnLBCCCZ/k0VReg1aE+9PAlAyXrhU9DlkXmUibW8JjiJ0+H/GVxGK\nSGtZSGT18cHOlruy3s2dGSt9/wKBgQDOHuJfcAMHYQa3cQRFtG0QjgBha33MOA5w\naZ29rcmunXltwabl2p+1zkuZUMC49aCfG1H5zL/9Q8+XeYcN7MQzCf5T5C3Fi1l+\n7cYUvBAk+BMJjpzK/AZjDgOdjNvREYS4o2WUrjKMqRRPs8/5h2YWkdZt13lxpcCp\n4DPVhem9AQKBgQDRN+4qbDA/PZ+A7rWHpnlDiWSwJTWN7w1dUTRzBBylOK8glcng\ndWrbS4vWQcjvYrW//B6cmn0cd5ffAhDVjgL6MbHjtOKRIeOTj/btbF7ECt86Rxzx\nmB5EkAYePIIFY7gmEv6he60lRjdpNMRTx7qk5dzBwTsQ0lTuZYsBY3VDkwKBgFY6\ns2dLu+ilXaL2g9wJXCs1zND0oB8EQH4koRoODzaeqIMTJZg5OuFbGWNdVhLKp1SI\noGXJk3QHn1v2OlrH91iG0MAV0FQ5NMqV/G0GNBbTNVulLtD4WE+uODL8D6XKF2UK\n7l8h9QHFZjrltZblXv8IKdWv9B1oQ06N/gFQ0XUBAoGANFv0Czxf3+/Kj7j7y5H1\nMCSLE8+a2CBuEQqc4cc/SyoIvuS6IEgW0eSBVWQh2PvemrhuvBn36zkvPEQ/OK4h\nwATLvTphZXgifjLOIGx76KSYMZdN4v50PBZDY2E5L5bRwCbxMlhzpkPh7kz2hYHC\nJN9g5T6ICLsDJcpT4sIrI+w=\n-----END PRIVATE KEY-----\n",
+  "client_email": "oma-demo@react-native-sheets-app.iam.gserviceaccount.com",
+  "client_id": "113407777698586980660",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/oma-demo%40react-native-sheets-app.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
