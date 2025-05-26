@@ -7,23 +7,11 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(
-  cors({
-    origin: [
-      "https://aryanxpatel.github.io",
-      "http://localhost:19006",
-      "https://oma-order-management-app.vercel.app",
-      "https://oma.patelaryan.com",
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
-
+app.use(cors());
 app.use(express.json());
 
 // Simple health check endpoint
-app.get("/", (req, res) => res.send("Order Management App - DEMO API running"));
+app.get("/", (req, res) => res.send("CJ Parikh API running"));
 
 // Unified auth client function
 async function getAuthClient() {
@@ -123,7 +111,7 @@ app.post("/api/sheets/:sheet", async (req, res) => {
         insertDataOption: "INSERT_ROWS",
         resource: { values },
       });
-
+      
       res.json(response.data);
     } else {
       return res.status(400).json({ error: "Invalid operation" });
