@@ -9,11 +9,17 @@ const port = process.env.PORT || 3000;
 
 app.use(
   cors({
-    origin: ["https://aryanxpatel.github.io", "http://localhost:19006"],
+    origin: [
+      "https://aryanxpatel.github.io",
+      "http://localhost:19006",
+      "https://oma-order-management-app.vercel.app",
+      "https://oma.patelaryan.com",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
 );
+
 app.use(express.json());
 
 // Simple health check endpoint
