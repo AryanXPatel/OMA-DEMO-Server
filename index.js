@@ -11,7 +11,7 @@ app.use(cors());
 app.use(express.json());
 
 // Simple health check endpoint
-app.get("/", (req, res) => res.send("CJ Parikh API running"));
+app.get("/", (req, res) => res.send("Order Management App - DEMO API running"));
 
 // Unified auth client function
 async function getAuthClient() {
