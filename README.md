@@ -113,31 +113,6 @@
 
 ---
 
-## 🤖 InboxRay - AI Inbox Management
-
-```typescript
-const inboxRay = {
-    description: "AI-Powered Email Management System",
-    features: [
-        "🎯 Achieve Inbox Zero automatically",
-        "🗑️ Smart spam & unwanted email removal",
-        "📧 Mass unsubscribe functionality", 
-        "📊 Daily AI-generated email summaries",
-        "🤖 Intelligent email categorization",
-        "⚡ Automated workflow management"
-    ],
-    techStack: {
-        ai: ["OpenAI GPT", "Natural Language Processing"],
-        backend: ["Node.js", "Express", "SQL Database"],
-        frontend: ["React", "TypeScript", "Modern UI"],
-        integrations: ["Gmail API", "Outlook API"]
-    },
-    status: "🚧 Currently in Development"
-};
-```
-
----
-
 ## 🌐 Connect With Me
 
 <div align="center">
