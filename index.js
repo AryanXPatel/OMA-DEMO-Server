@@ -2,6 +2,11 @@ const express = require("express");
 const { google } = require("googleapis");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const {
+  RAW_RANGES,
+  OUTPUT_SHEETS,
+  buildAnalyticsWorkbook,
+} = require("./analyticsWorkbook");
 
 dotenv.config();
 const app = express();
@@ -35,17 +40,134 @@ async function getAuthClient() {
   }
 }
 
+async function getSheetsContext() {
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) {
+    throw new Error("Spreadsheet ID missing");
+  }
+
+  const client = await getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth: client });
+
+  return { spreadsheetId, sheets };
+}
+
+function ensureValuesMatrix(values) {
+  if (!values || !Array.isArray(values)) {
+    throw new Error("Invalid values");
+  }
+}
+
+app.post("/api/sheets/batch-update", async (req, res) => {
+  try {
+    const { updates, valueInputOption = "USER_ENTERED" } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: "Invalid updates payload" });
+    }
+
+    const data = updates.map((update) => {
+      if (!update || typeof update.range !== "string") {
+        throw new Error("Each update must include a range");
+      }
+
+      ensureValuesMatrix(update.values);
+
+      return {
+        range: update.range,
+        values: update.values,
+      };
+    });
+
+    const { spreadsheetId, sheets } = await getSheetsContext();
+    const response = await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      resource: {
+        valueInputOption,
+        data,
+      },
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error("Error batch updating data:", error);
+    res
+      .status(500)
+      .json({ error: "Batch update failed", details: error.message });
+  }
+});
+
+app.post("/api/analytics/rebuild", async (req, res) => {
+  try {
+    const { spreadsheetId, sheets } = await getSheetsContext();
+
+    const [orderResponse, customerResponse, productResponse, ledgerResponse] =
+      await Promise.all([
+        sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: RAW_RANGES.orders,
+        }),
+        sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: RAW_RANGES.customers,
+        }),
+        sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: RAW_RANGES.products,
+        }),
+        sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: RAW_RANGES.ledger,
+        }),
+      ]);
+
+    const workbook = buildAnalyticsWorkbook({
+      orderValues: orderResponse.data.values || [],
+      customerValues: customerResponse.data.values || [],
+      productValues: productResponse.data.values || [],
+      ledgerValues: ledgerResponse.data.values || [],
+      snapshotMoment: new Date(),
+    });
+
+    const sheetNames = Object.values(OUTPUT_SHEETS);
+    await sheets.spreadsheets.values.batchClear({
+      spreadsheetId,
+      resource: {
+        ranges: sheetNames.map((sheetName) => `${sheetName}!A:ZZ`),
+      },
+    });
+
+    const response = await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      resource: {
+        valueInputOption: "USER_ENTERED",
+        data: Object.entries(workbook).map(([sheetName, values]) => ({
+          range: `${sheetName}!A1`,
+          values,
+        })),
+      },
+    });
+
+    res.json({
+      rebuiltSheets: sheetNames,
+      updatedCells: response.data.totalUpdatedCells || 0,
+      updatedRows: response.data.totalUpdatedRows || 0,
+      updatedColumns: response.data.totalUpdatedColumns || 0,
+      updatedRanges: response.data.totalUpdatedSheets || 0,
+    });
+  } catch (error) {
+    console.error("Error rebuilding analytics workbook:", error);
+    res
+      .status(500)
+      .json({ error: "Analytics rebuild failed", details: error.message });
+  }
+});
+
 // GET spreadsheet data
 app.get("/api/sheets/:range", async (req, res) => {
   try {
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-    if (!spreadsheetId)
-      return res.status(500).json({ error: "Spreadsheet ID missing" });
-
-    const client = await getAuthClient();
-    google.options({ auth: client });
-
-    const response = await google.sheets("v4").spreadsheets.values.get({
+    const { spreadsheetId, sheets } = await getSheetsContext();
+    const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: req.params.range,
     });
@@ -63,17 +185,10 @@ app.get("/api/sheets/:range", async (req, res) => {
 app.put("/api/sheets/:range", async (req, res) => {
   try {
     const { values } = req.body;
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-
-    if (!spreadsheetId)
-      return res.status(500).json({ error: "Spreadsheet ID missing" });
     if (!values || !Array.isArray(values))
       return res.status(400).json({ error: "Invalid values" });
-
-    const client = await getAuthClient();
-    google.options({ auth: client });
-
-    const response = await google.sheets("v4").spreadsheets.values.update({
+    const { spreadsheetId, sheets } = await getSheetsContext();
+    const response = await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: req.params.range,
       valueInputOption: "USER_ENTERED",
@@ -91,27 +206,20 @@ app.put("/api/sheets/:range", async (req, res) => {
 app.post("/api/sheets/:sheet", async (req, res) => {
   try {
     const { values, operation } = req.body;
-    const spreadsheetId = process.env.SPREADSHEET_ID;
     const sheet = req.params.sheet;
-
-    if (!spreadsheetId)
-      return res.status(500).json({ error: "Spreadsheet ID missing" });
     if (!values || !Array.isArray(values))
       return res.status(400).json({ error: "Invalid values" });
-
-    const client = await getAuthClient();
-    google.options({ auth: client });
+    const { spreadsheetId, sheets } = await getSheetsContext();
 
     if (operation === "append") {
-      // Use the append endpoint
-      const response = await google.sheets("v4").spreadsheets.values.append({
+      const response = await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: sheet,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
         resource: { values },
       });
-      
+
       res.json(response.data);
     } else {
       return res.status(400).json({ error: "Invalid operation" });
