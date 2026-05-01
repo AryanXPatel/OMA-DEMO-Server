@@ -9,8 +9,29 @@ const {
 } = require("./analyticsWorkbook");
 
 dotenv.config();
+
+function resolvePort(argv = process.argv.slice(2), env = process.env) {
+  const inlinePortArg = argv.find((arg) => arg.startsWith("--port="));
+  const portFlagIndex = argv.findIndex(
+    (arg) => arg === "-p" || arg === "--port"
+  );
+  const cliPort = inlinePortArg
+    ? inlinePortArg.slice("--port=".length)
+    : portFlagIndex !== -1
+      ? argv[portFlagIndex + 1]
+      : undefined;
+  const selectedPort = cliPort || env.PORT || "3000";
+  const parsedPort = Number(selectedPort);
+
+  if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+    throw new Error(`Invalid port: ${selectedPort}`);
+  }
+
+  return parsedPort;
+}
+
 const app = express();
-const port = process.env.PORT || 3000;
+const port = resolvePort();
 
 app.use(cors());
 app.use(express.json());
