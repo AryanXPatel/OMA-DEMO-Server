@@ -122,6 +122,17 @@ const ATTENTION_QUEUE_FIELDS = [
   "owner",
 ];
 
+const SEVERITY_RANK = {
+  danger: 4,
+  critical: 3,
+  warning: 3,
+  high: 2,
+  success: 1,
+  info: 1,
+  medium: 1,
+  low: 0,
+};
+
 function rowsToObjects(values) {
   if (!Array.isArray(values) || values.length < 2) {
     return [];
@@ -218,6 +229,27 @@ function toIsoTimestamp(value) {
   }
 
   return value.toISOString().replace(/\.\d{3}Z$/, ".000Z");
+}
+
+function parseActivityDate(value) {
+  return (
+    parseIso(value) ||
+    parseIndianDate(value) ||
+    parseLedgerDate(value) ||
+    null
+  );
+}
+
+function compactOrderId(orderId) {
+  const match = String(orderId || "")
+    .trim()
+    .match(/^(20\d{2})(?:-20\d{2})?[_-](\d+)/);
+
+  if (!match) {
+    return String(orderId || "").trim();
+  }
+
+  return `${match[1].slice(-2)}-${match[2].slice(-4).padStart(4, "0")}`;
 }
 
 function normalizeSourceChannel(source) {
@@ -768,6 +800,280 @@ function buildAttentionQueueRows(orderHeaderRows, arOpenItemsRows, snapshotDate)
   return [...orderRows, ...receivableRows];
 }
 
+function pushActivity(events, event) {
+  if (!event || !event.entity_id || !event.occurred_at) {
+    return;
+  }
+
+  const id = event.event_id || `${event.event_type}:${event.entity_id}:${event.occurred_at}`;
+  events.set(id, {
+    amount: "",
+    actor_name: "",
+    actor_role: "",
+    customer_code: "",
+    customer_name: "",
+    display_id: compactOrderId(event.entity_id),
+    entity_type: "order",
+    message: "",
+    severity: "info",
+    source: "derived",
+    ...event,
+    event_id: id,
+  });
+}
+
+function buildOrderActivityEvents(orderValues, customerMaps, productMaps) {
+  const normalizedOrders = buildNormalizedOrders(orderValues, customerMaps, productMaps);
+  const rawOrderRows = rowsToObjects(orderValues);
+  const groups = new Map();
+
+  normalizedOrders.forEach((row) => {
+    groups.set(row.orderId, [...(groups.get(row.orderId) || []), row]);
+  });
+
+  const events = new Map();
+
+  Array.from(groups.entries()).forEach(([orderId, rows]) => {
+    const first = rows[0];
+    const rawRows = rawOrderRows.filter(
+      (row) => String(row["ORDER ID"] || "").trim() === orderId
+    );
+    const createdAt =
+      rows.map((row) => row.createdAt).filter(Boolean).sort((a, b) => a - b)[0] ||
+      null;
+    const approvalAt =
+      rawRows
+        .map((row) => parseActivityDate(row.approval_at_iso || row.last_status_at_iso))
+        .filter(Boolean)
+        .sort((a, b) => b - a)[0] || null;
+    const dispatchAt =
+      rows.map((row) => row.dispatchAt).filter(Boolean).sort((a, b) => b - a)[0] ||
+      null;
+    const invoiceAt =
+      rawRows
+        .map((row) => parseActivityDate(row.invoice_date_iso))
+        .filter(Boolean)
+        .sort((a, b) => b - a)[0] || null;
+    const cancelledAt =
+      rawRows
+        .map((row) => parseActivityDate(row.cancelled_at_iso))
+        .filter(Boolean)
+        .sort((a, b) => b - a)[0] || null;
+    const status = groupedOrderStatus(rows);
+    const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0);
+    const itemLabel = `${rows.length} ${rows.length === 1 ? "item" : "items"}`;
+
+    pushActivity(events, {
+      event_type: "order.created",
+      entity_id: orderId,
+      customer_code: first.customerCode,
+      customer_name: first.customerName,
+      actor_name: first.user,
+      actor_role: "User",
+      occurred_at: toIsoTimestamp(createdAt),
+      title: "Order created",
+      message: `${compactOrderId(orderId)} for ${first.customerName} (${itemLabel})`,
+      amount: Number(totalAmount.toFixed(2)),
+      severity: "info",
+      source: "New_Order_Table",
+    });
+
+    if (status === "rejected") {
+      pushActivity(events, {
+        event_type: "approval.rejected",
+        entity_id: orderId,
+        customer_code: first.customerCode,
+        customer_name: first.customerName,
+        actor_name: first.user,
+        actor_role: "Manager",
+        occurred_at: toIsoTimestamp(approvalAt || createdAt),
+        title: "Order blocked",
+        message: `${first.customerName} requires manager follow-up`,
+        amount: Number(totalAmount.toFixed(2)),
+        severity: "danger",
+        source: "New_Order_Table",
+      });
+    } else if (status === "approved" || status === "dispatched") {
+      pushActivity(events, {
+        event_type: "approval.approved",
+        entity_id: orderId,
+        customer_code: first.customerCode,
+        customer_name: first.customerName,
+        actor_name: first.user,
+        actor_role: "Manager",
+        occurred_at: toIsoTimestamp(approvalAt || dispatchAt || createdAt),
+        title: "Order approved",
+        message: `${first.customerName} is ready for dispatch`,
+        amount: Number(totalAmount.toFixed(2)),
+        severity: "success",
+        source: "New_Order_Table",
+      });
+    }
+
+    if (status === "dispatched" && dispatchAt) {
+      pushActivity(events, {
+        event_type: "dispatch.completed",
+        entity_id: orderId,
+        customer_code: first.customerCode,
+        customer_name: first.customerName,
+        actor_name: first.user,
+        actor_role: "User",
+        occurred_at: toIsoTimestamp(dispatchAt),
+        title: "Order dispatched",
+        message: `${first.customerName} moved to fulfillment`,
+        amount: Number(totalAmount.toFixed(2)),
+        severity: "success",
+        source: "New_Order_Table",
+      });
+    }
+
+    if (invoiceAt) {
+      pushActivity(events, {
+        event_type: "invoice.issued",
+        entity_id: orderId,
+        customer_code: first.customerCode,
+        customer_name: first.customerName,
+        actor_name: first.user,
+        actor_role: "System",
+        occurred_at: toIsoTimestamp(invoiceAt),
+        title: "Invoice posted",
+        message: `${first.customerName} invoice is linked to ${compactOrderId(orderId)}`,
+        amount: Number(totalAmount.toFixed(2)),
+        severity: "info",
+        source: "New_Order_Table",
+      });
+    }
+
+    if (cancelledAt) {
+      pushActivity(events, {
+        event_type: "order.cancelled",
+        entity_id: orderId,
+        customer_code: first.customerCode,
+        customer_name: first.customerName,
+        actor_name: first.user,
+        actor_role: "Manager",
+        occurred_at: toIsoTimestamp(cancelledAt),
+        title: "Order cancelled",
+        message: `${first.customerName} order was cancelled`,
+        amount: Number(totalAmount.toFixed(2)),
+        severity: "danger",
+        source: "New_Order_Table",
+      });
+    }
+  });
+
+  return Array.from(events.values());
+}
+
+function buildLedgerActivityEvents(ledgerValues) {
+  return buildLedgerRecords(ledgerValues)
+    .filter((row) => row.txnDate)
+    .map((row) => {
+      const isCredit = row.dc === "C";
+      const amount = Math.abs(row.signedAmount || row.amount || row.openAmount || 0);
+      return {
+        event_id: `ledger.${isCredit ? "payment_received" : "invoice_posted"}:${row.txnId}:${toIsoTimestamp(row.txnDate)}`,
+        event_type: isCredit ? "ledger.payment_received" : "ledger.invoice_posted",
+        entity_type: "ledger_txn",
+        entity_id: row.txnId,
+        display_id: row.txnId,
+        customer_code: row.customerCode,
+        customer_name: row.customerName,
+        actor_name: row.collector_owner || "",
+        actor_role: row.collector_owner ? "Collector" : "System",
+        occurred_at: toIsoTimestamp(row.txnDate),
+        title: isCredit ? "Payment received" : "Invoice posted",
+        message: `${row.customerName} ${isCredit ? "payment" : "invoice"} recorded`,
+        amount: Number(amount.toFixed(2)),
+        severity: isCredit ? "success" : "info",
+        source: "Customer_Ledger_2",
+      };
+    });
+}
+
+function buildQueueActivityEvents(attentionValues, customerMaps) {
+  return rowsToObjects(attentionValues)
+    .map((row) => {
+      const occurredAt = parseActivityDate(row.snapshot_date);
+      const customer = customerMaps.byCode.get(row.customer_code || "");
+      const entityId = row.entity_id || row.customer_code || row.headline;
+
+      return {
+        event_id: `queue.${row.reason_code || "attention"}:${entityId}:${toIsoTimestamp(occurredAt)}`,
+        event_type: "queue.attention",
+        entity_type: row.entity_type || "queue_item",
+        entity_id: entityId,
+        display_id: compactOrderId(entityId),
+        customer_code: row.customer_code || "",
+        customer_name: customer?.["Customer NAME"] || row.customer_code || "",
+        actor_name: row.owner || "",
+        actor_role: row.owner ? "Owner" : "System",
+        occurred_at: toIsoTimestamp(occurredAt),
+        title: row.headline || "Attention needed",
+        message: row.reason_code || "Current queue item needs review",
+        amount: row.amount === "" ? "" : toNumber(row.amount),
+        severity:
+          row.severity === "critical"
+            ? "danger"
+            : row.severity === "high"
+            ? "warning"
+            : "info",
+        source: "Attention_Queue_Snapshot",
+      };
+    })
+    .filter((event) => event.entity_id && event.occurred_at);
+}
+
+function sortActivityEvents(events) {
+  return events.sort((left, right) => {
+    const dateDiff =
+      new Date(right.occurred_at).getTime() - new Date(left.occurred_at).getTime();
+    if (dateDiff !== 0) {
+      return dateDiff;
+    }
+    return (
+      (SEVERITY_RANK[right.severity] || 0) -
+      (SEVERITY_RANK[left.severity] || 0)
+    );
+  });
+}
+
+function buildRecentActivityFeed({
+  orderValues,
+  customerValues,
+  productValues,
+  ledgerValues,
+  attentionValues = [],
+  limit = 10,
+}) {
+  const customerMaps = buildCustomerMaps(customerValues);
+  const productMaps = buildProductMaps(productValues);
+  const historicalEvents = new Map();
+  const queueEvents = new Map();
+  const clampedLimit = Math.max(1, Math.min(Number(limit) || 10, 25));
+
+  [
+    ...buildOrderActivityEvents(orderValues, customerMaps, productMaps),
+    ...buildLedgerActivityEvents(ledgerValues),
+  ].forEach((event) => pushActivity(historicalEvents, event));
+
+  buildQueueActivityEvents(attentionValues, customerMaps).forEach((event) =>
+    pushActivity(queueEvents, event)
+  );
+
+  const sortedHistorical = sortActivityEvents(Array.from(historicalEvents.values()));
+  const sortedQueue = sortActivityEvents(Array.from(queueEvents.values()));
+  const queueFillCount = Math.max(
+    0,
+    Math.min(2, clampedLimit - sortedHistorical.length)
+  );
+
+  return [...sortedHistorical, ...sortedQueue.slice(0, queueFillCount)].slice(
+    0,
+    clampedLimit
+  );
+}
+
 function buildAnalyticsWorkbook({
   orderValues,
   customerValues,
@@ -834,4 +1140,5 @@ module.exports = {
   RAW_RANGES,
   OUTPUT_SHEETS,
   buildAnalyticsWorkbook,
+  buildRecentActivityFeed,
 };

@@ -6,6 +6,7 @@ const {
   RAW_RANGES,
   OUTPUT_SHEETS,
   buildAnalyticsWorkbook,
+  buildRecentActivityFeed,
 } = require("./analyticsWorkbook");
 
 dotenv.config();
@@ -32,6 +33,18 @@ function resolvePort(argv = process.argv.slice(2), env = process.env) {
 
 const app = express();
 const port = resolvePort();
+const ACTIVITY_CACHE_TTL_MS = 60000;
+const activityCache = {
+  expiresAt: 0,
+  key: "",
+  payload: null,
+};
+
+function clearActivityCache() {
+  activityCache.expiresAt = 0;
+  activityCache.key = "";
+  activityCache.payload = null;
+}
 
 app.use(cors());
 app.use(express.json());
@@ -109,6 +122,7 @@ app.post("/api/sheets/batch-update", async (req, res) => {
       },
     });
 
+    clearActivityCache();
     res.json(response.data);
   } catch (error) {
     console.error("Error batch updating data:", error);
@@ -169,6 +183,7 @@ app.post("/api/analytics/rebuild", async (req, res) => {
       },
     });
 
+    clearActivityCache();
     res.json({
       rebuiltSheets: sheetNames,
       updatedCells: response.data.totalUpdatedCells || 0,
@@ -181,6 +196,101 @@ app.post("/api/analytics/rebuild", async (req, res) => {
     res
       .status(500)
       .json({ error: "Analytics rebuild failed", details: error.message });
+  }
+});
+
+async function getOptionalSheetValues(sheets, spreadsheetId, range) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+    });
+
+    return response.data.values || [];
+  } catch (error) {
+    console.warn(`Optional sheet range unavailable: ${range}`, error.message);
+    return [];
+  }
+}
+
+app.get("/api/activity/recent", async (req, res) => {
+  try {
+    const requestedLimit = Number.parseInt(req.query.limit || "10", 10);
+    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 10, 25));
+    const refresh = req.query.refresh === "1" || req.query.refresh === "true";
+    const cacheKey = `recent:${limit}`;
+    const now = Date.now();
+
+    if (
+      !refresh &&
+      activityCache.payload &&
+      activityCache.key === cacheKey &&
+      activityCache.expiresAt > now
+    ) {
+      return res.json({
+        ...activityCache.payload,
+        cached: true,
+      });
+    }
+
+    const { spreadsheetId, sheets } = await getSheetsContext();
+    const [
+      orderResponse,
+      customerResponse,
+      productResponse,
+      ledgerResponse,
+      attentionValues,
+    ] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: RAW_RANGES.orders,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: RAW_RANGES.customers,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: RAW_RANGES.products,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: RAW_RANGES.ledger,
+      }),
+      getOptionalSheetValues(
+        sheets,
+        spreadsheetId,
+        `${OUTPUT_SHEETS.attentionQueue}!A1:K`
+      ),
+    ]);
+
+    const activities = buildRecentActivityFeed({
+      orderValues: orderResponse.data.values || [],
+      customerValues: customerResponse.data.values || [],
+      productValues: productResponse.data.values || [],
+      ledgerValues: ledgerResponse.data.values || [],
+      attentionValues,
+      limit,
+    });
+    const payload = {
+      activities,
+      generated_at: new Date().toISOString(),
+      source: "derived",
+    };
+
+    activityCache.key = cacheKey;
+    activityCache.payload = payload;
+    activityCache.expiresAt = now + ACTIVITY_CACHE_TTL_MS;
+
+    res.json({
+      ...payload,
+      cached: false,
+    });
+  } catch (error) {
+    console.error("Error building recent activity:", error);
+    res
+      .status(500)
+      .json({ error: "Recent activity failed", details: error.message });
   }
 });
 
@@ -216,6 +326,7 @@ app.put("/api/sheets/:range", async (req, res) => {
       resource: { values },
     });
 
+    clearActivityCache();
     res.json(response.data);
   } catch (error) {
     console.error("Error updating data:", error);
@@ -241,6 +352,7 @@ app.post("/api/sheets/:sheet", async (req, res) => {
         resource: { values },
       });
 
+      clearActivityCache();
       res.json(response.data);
     } else {
       return res.status(400).json({ error: "Invalid operation" });
