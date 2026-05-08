@@ -1,7 +1,12 @@
 const express = require("express");
+const bufferModule = require("buffer");
+if (!bufferModule.SlowBuffer) {
+  bufferModule.SlowBuffer = bufferModule.Buffer;
+}
 const { google } = require("googleapis");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const { buildVoiceOrderDraftResponse } = require("./voiceOrder");
 const {
   RAW_RANGES,
   OUTPUT_SHEETS,
@@ -33,6 +38,8 @@ function resolvePort(argv = process.argv.slice(2), env = process.env) {
 
 const app = express();
 const port = resolvePort();
+const defaultJsonParser = express.json();
+const voiceOrderJsonParser = express.json({ limit: "20mb" });
 const ACTIVITY_CACHE_TTL_MS = 60000;
 const activityCache = {
   expiresAt: 0,
@@ -47,7 +54,13 @@ function clearActivityCache() {
 }
 
 app.use(cors());
-app.use(express.json());
+app.use((req, res, next) => {
+  if (req.path === "/api/voice-order/draft") {
+    return voiceOrderJsonParser(req, res, next);
+  }
+
+  return defaultJsonParser(req, res, next);
+});
 
 // Simple health check endpoint
 app.get("/", (req, res) => res.send("Order Management App - DEMO API running"));
@@ -291,6 +304,39 @@ app.get("/api/activity/recent", async (req, res) => {
     res
       .status(500)
       .json({ error: "Recent activity failed", details: error.message });
+  }
+});
+
+app.post("/api/voice-order/draft", async (req, res) => {
+  try {
+    const response = await buildVoiceOrderDraftResponse({
+      body: req.body,
+      getSheetsContext,
+    });
+
+    if (response.status === "needs_disambiguation") {
+      return res.status(409).json(response);
+    }
+
+    if (response.status === "rejected") {
+      return res.status(422).json(response);
+    }
+
+    return res.json(response);
+  } catch (error) {
+    const statusCode =
+      Number.isInteger(error?.statusCode) && error.statusCode >= 400
+        ? error.statusCode
+        : 500;
+
+    console.error("Voice-order draft error:", error);
+    return res.status(statusCode).json({
+      error: "Voice-order draft failed",
+      details:
+        statusCode >= 500
+          ? "Temporary voice-order service failure"
+          : error.message,
+    });
   }
 });
 
