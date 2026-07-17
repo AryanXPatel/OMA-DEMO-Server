@@ -766,7 +766,7 @@ function buildVoiceOrderPrompt({ transcript, draft, llmContext }) {
 async function parseTranscriptWithLlm({ transcript, draft, customers, products }) {
   const baseUrl = readEnv("VOICE_ORDER_LLM_BASE_URL").replace(/\/+$/, "");
   const apiKey = readEnv("CODEX_LB_API_KEY");
-  const model = readEnv("VOICE_ORDER_LLM_MODEL") || "gpt-5.4-mini";
+  const model = readEnv("VOICE_ORDER_LLM_MODEL") || "deepseek-chat";
 
   if (!baseUrl) {
     throw buildServiceError("Missing VOICE_ORDER_LLM_BASE_URL", 500);
@@ -782,9 +782,8 @@ async function parseTranscriptWithLlm({ transcript, draft, customers, products }
     products: llmContext.productCandidates.length,
   });
 
-  const chatBaseUrl = baseUrl.endsWith("/backend-api/codex")
-    ? `${baseUrl.slice(0, -"/backend-api/codex".length)}/v1`
-    : baseUrl;
+  // VOICE_ORDER_LLM_BASE_URL should include /v1 (e.g. https://api.deepseek.com/v1)
+  const chatBaseUrl = baseUrl;
 
   const response = await fetch(`${chatBaseUrl}/chat/completions`, {
     method: "POST",
